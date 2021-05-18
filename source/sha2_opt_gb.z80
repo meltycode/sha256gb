@@ -1,0 +1,1146 @@
+;
+; SHA2-256 for GAMEBOY (optimized version)
+;
+; input:  hl=start address 16bit
+;         de=length 16bit
+;         call sha2_256
+; output: sha2_hash(32bytes)
+;
+; need more optimization.
+; input file size は現実的に考えて <=16bit とするのが適当だと思う。
+; MBC5 の最大 8,388,608byte が 24bit で TPP1 が 1,073,741,824 なので 32bit あれば網羅は出来るが ROM のハッシュ求めても嬉しくない。
+; TPP1 の RAM は 2,097,152 なので 24bit で収まる。
+
+sha2_const_k:
+	dl	$428A2F98, $71374491, $B5C0FBCF, $E9B5DBA5, $3956C25B, $59F111F1, $923F82A4, $AB1C5ED5
+	dl	$D807AA98, $12835B01, $243185BE, $550C7DC3, $72BE5D74, $80DEB1FE, $9BDC06A7, $C19BF174
+	dl	$E49B69C1, $EFBE4786, $0FC19DC6, $240CA1CC, $2DE92C6F, $4A7484AA, $5CB0A9DC, $76F988DA
+	dl	$983E5152, $A831C66D, $B00327C8, $BF597FC7, $C6E00BF3, $D5A79147, $06CA6351, $14292967
+	dl	$27B70A85, $2E1B2138, $4D2C6DFC, $53380D13, $650A7354, $766A0ABB, $81C2C92E, $92722C85
+	dl	$A2BFE8A1, $A81A664B, $C24B8B70, $C76C51A3, $D192E819, $D6990624, $F40E3585, $106AA070
+	dl	$19A4C116, $1E376C08, $2748774C, $34B0BCB5, $391C0CB3, $4ED8AA4A, $5B9CCA4F, $682E6FF3
+	dl	$748F82EE, $78A5636F, $84C87814, $8CC70208, $90BEFFFA, $A4506CEB, $BEF9A3F7, $C67178F2
+
+sha2_h_init:
+	dl	$6A09E667, $BB67AE85, $3C6EF372, $A54FF53A, $510E527F, $9B05688C, $1F83D9AB, $5BE0CD19
+
+
+;--------------------------------------------------------------------------------------------------
+sha2_calc_chunk:
+	ld			a,[sha2_state]
+	rrca
+	ret			c						;bit0=total_len_delivered. サイズを含んだブロックを処理済み
+
+	ld			hl,sha2_len
+	ld			a,[hl]
+	ld			b,a
+	sub			64
+	ld			[hl+],a
+	ld			a,[hl]
+	sbc			a,0
+	ld			[hl-],a					;len -= 64(blocksize)
+	jr			c,.last
+	or			a						;cf=0
+	ret
+
+.last:									;b=remain length
+	xor			a
+	ld			[hl+],a
+	ld			[hl],a					;len = 0
+	ld			a,64
+	sub			b
+	ld			c,a						;c=space in chunk
+
+	ld			hl,sha2_p
+	ld			a,[hl+]
+	ld			d,[hl]
+	ld			e,a						;de=input address
+
+	inc			b
+	ld			hl,sha2_chunk			;64byte のバッファにコピーする
+.loop:
+	dec			b
+	jr			z,.skip
+	ld			a,[de]
+	inc			de
+	ld			[hl+],a
+	jr			.loop
+.skip:
+
+	ld			a,[sha2_state]
+	bit			7,a
+	jr			nz,.skip2				;bit7=single_one_delivered
+	set			7,a
+	ld			[sha2_state],a
+
+	ld			a,$80					;区切りサイン $80
+	ld			[hl+],a					;b<64 のときにここに来るので、必ず 1byte のサインを書く余地はある
+	dec			c						;space_in_chunk--
+
+.skip2:
+	ld			a,c
+	cp			8
+	jr			c,.pad					;space_in_chunk < 8 のときはサイズ埋め込みができないので 0 で埋めて今回は終了
+	ld			a,c
+	sub			8
+	ld			c,a
+	call		.pad					;space_in_chunk-8 を $00 で埋めて、
+
+	ld			a,[sha2_totallen+0]
+	ld			e,a
+	ld			a,[sha2_totallen+1]		;8倍して bytes -> bits にする
+	ld			d,a
+	ld			c,0
+	sla			e
+	rl			d
+	rl			c
+	sla			e
+	rl			d
+	rl			c
+	sla			e
+	rl			d
+	rl			c						;cde *= 8
+
+	ld			hl,sha2_chunk+56
+	xor			a						;big endian で 8byte のサイズ情報(bits)を埋め込む
+	ld			[hl+],a
+	ld			[hl+],a
+	ld			[hl+],a
+	ld			[hl+],a
+	ld			[hl+],a
+	ld			a,c
+	ld			[hl+],a
+	ld			a,d
+	ld			[hl+],a
+	ld			[hl],e
+
+	ld			hl,sha2_state
+	set			0,[hl]					;bit0=total_len_delivered. サイズを含んだブロックを処理済み
+	or			a
+	ret									;cf=0
+
+.pad:									;空きスペースが 8byte より少ないので今回はサイズ埋め込みは見送って $00 で埋める。
+	ld			a,LOW(sha2_chunk)
+	ld			[sha2_p + 0],a
+	ld			a,HIGH(sha2_chunk)		;RAM バッファの方を処理する
+	ld			[sha2_p + 1],a
+
+	xor			a
+	inc			c
+	dec			c
+	ret			z						;c=0 の時は pad する余地なし
+.padloop:
+	ld			[hl+],a
+	dec			c
+	jr			nz,.padloop
+	or			a
+	ret									;cf=0
+
+;--------------------------------------------------------------------------------------------------
+;hl=start address
+;de=total_len
+sha2_256:
+	xor			a
+	ld			[sha2_state],a
+
+	ld			a,l
+	ld			[sha2_p+0],a
+	ld			a,h
+	ld			[sha2_p+1],a
+
+	ld			a,e
+	ld			[sha2_len+0],a
+	ld			[sha2_totallen+0],a
+	ld			a,d
+	ld			[sha2_len+1],a
+	ld			[sha2_totallen+1],a
+
+	ld			hl,sha2_h_init
+	ld			de,sha2_h
+	ld			bc,32					;初期値をコピー
+	call		LDIR
+
+.while:
+	call		sha2_calc_chunk
+	jp			c,.wend
+
+	ld			hl,sha2_h
+	ld			de,sha2_ah
+	ld			bc,8 * 4
+	call		LDIR
+
+	xor			a
+	ld			[sha2_i],a				;0...3
+.loop_i:
+	xor			a
+	ld			[sha2_j],a				;0...15 カウントアップした方が速い
+.loop_j:
+	ld			a,[sha2_i]
+	or			a
+	jr			nz,.else
+
+	ld			hl,sha2_p
+	ld			a,[hl+]
+	ld			h,[hl]
+	ld			l,a
+
+	ld			a,[hl+]					;ビッグエンディアンで拾って
+	ld			b,a
+	ld			a,[hl+]
+	ld			c,a
+	ld			a,[hl+]
+	ld			d,a
+	ld			a,[hl+]
+	ld			e,a						;バンク跨ぎを考慮する場合はこの辺で。
+
+	ld			a,l
+	ld			[sha2_p+0],a
+	ld			a,h
+	ld			[sha2_p+1],a			;p += 4
+
+	ld			a,[sha2_j]
+	add			a,a
+	add			a,a
+	add			a,LOW(sha2_w)
+	ld			l,a
+	adc			a,HIGH(sha2_w)
+	sub			l
+	ld			h,a						;hl = w[j]
+
+	ld			a,e						;リトルエンディアンで格納
+	ld			[hl+],a
+	ld			a,d
+	ld			[hl+],a
+	ld			a,c
+	ld			[hl+],a
+	ld			[hl],b
+
+	jp			.endif
+.else:
+;s0
+	ld			a,[sha2_j]
+	inc			a
+	and			15
+	add			a,a
+	add			a,a						;*4byte
+	add			a,LOW(sha2_w)
+	ld			l,a
+	adc			a,HIGH(sha2_w)
+	sub			l
+	ld			h,a						;hl=w[(j + 1) & $0F]
+	push		hl
+	push		hl
+
+	ld			a,[hl+]					;optimize rrot(w[j + 1] & 15, 7)
+	ld			b,a
+	ld			a,[hl+]
+	ld			e,a
+	ld			a,[hl+]
+	ld			d,a
+	ld			c,[hl]					;rrot 8
+
+	sla			e						;lrot 1
+	rl			d
+	rl			c
+	rl			b
+	jr			nc,:+
+	inc			e
+:
+
+	pop			hl						;hl=w[(j + 1) & $0F]
+	push		bc
+	push		de						;push rrrot,7 result
+
+	ld			a,[hl+]					;optimize rrot(w[j + 1] & 15, 18)
+	ld			c,a
+	ld			a,[hl+]
+	ld			b,a
+	ld			a,[hl+]
+	ld			e,a
+	ld			d,[hl]					;rrot 16
+
+		rept 2
+	srl			b						;rrot 2
+	rr			c
+	rr			d
+	rr			e
+	jr			nc,:+
+	set			7,b
+:
+		endr
+
+	pop			hl						;xor32
+	ld			a,l
+	xor			e
+	ld			e,a
+	ld			a,h
+	xor			d
+	ld			d,a
+	pop			hl
+	ld			a,l
+	xor			c
+	ld			c,a
+	ld			a,h
+	xor			b
+	ld			b,a
+
+	pop			hl						;hl=w[(j + 1) & $0F]
+	push		bc
+	push		de						;push xor32 result
+
+	ld			b,3
+	call		sha2_rshift
+
+	pop			hl						;xor32
+	ld			a,l
+	xor			e
+	ld			e,a
+	ld			a,h
+	xor			d
+	ld			d,a
+	pop			hl
+	ld			a,l
+	xor			c
+	ld			c,a
+	ld			a,h
+	xor			b
+	ld			b,a
+
+	push		bc
+	push		de						;push s0
+
+;s1
+	ld			a,[sha2_j]
+	add			a,14
+	and			15
+	add			a,a
+	add			a,a						;*4byte
+	add			a,LOW(sha2_w)
+	ld			l,a
+	adc			a,HIGH(sha2_w)
+	sub			l
+	ld			h,a						;hl=w[(j + 14) & $0F]
+	push		hl
+	push		hl
+
+	ld			a,[hl+]					;optimize rrot(w[(j + 14) & 15], 17)
+	ld			c,a
+	ld			a,[hl+]
+	ld			b,a
+	ld			a,[hl+]
+	ld			e,a
+	ld			d,[hl]					;rrot 16
+
+	srl			b						;rrot 1
+	rr			c
+	rr			d
+	rr			e
+	jr			nc,:+
+	set			7,b
+:
+
+	pop			hl						;hl=w[(j + 14) & $0F]
+	push		bc
+	push		de						;push rrrot,17 result
+
+		rept 2
+	srl			b						;rrot,17 の結果をさらに rrot,2 して rrot,19 にする
+	rr			c
+	rr			d
+	rr			e
+	jr			nc,:+
+	set			7,b
+:
+		endr
+
+	pop			hl
+	ld			a,l
+	xor			e
+	ld			e,a
+	ld			a,h
+	xor			d
+	ld			d,a
+	pop			hl
+	ld			a,l
+	xor			c
+	ld			c,a
+	ld			a,h
+	xor			b
+	ld			b,a
+
+	pop			hl						;hl=w[(j + 14) & $0F]
+	push		bc
+	push		de						;push xor32 result
+
+	ld			a,[hl+]					;optimize rshift(w[(j + 14) & $0F], 10)
+	ld			a,[hl+]
+	ld			e,a
+	ld			a,[hl+]
+	ld			d,a
+	ld			c,[hl]
+	ld			b,0
+
+		rept 2
+	srl			b
+	rr			c
+	rr			d
+	rr			e
+		endr
+
+	pop			hl						;xor32
+	ld			a,l
+	xor			e
+	ld			e,a
+	ld			a,h
+	xor			d
+	ld			d,a
+	pop			hl
+	ld			a,l
+	xor			c
+	ld			c,a
+	ld			a,h
+	xor			b
+	ld			b,a
+
+	push		bc
+	push		de						;push s1
+
+;w[j]
+	ld			a,[sha2_j]
+	add			a,a
+	add			a,a						;*4byte
+	add			a,LOW(sha2_w)
+	ld			l,a
+	adc			a,HIGH(sha2_w)
+	sub			l
+	ld			h,a						;hl = w[j]
+	push		hl
+
+	ld			a,[sha2_j]
+	add			a,9
+	and			15
+	add			a,a
+	add			a,a						;*4byte
+	add			a,LOW(sha2_w)
+	ld			e,a
+	adc			a,HIGH(sha2_w)
+	sub			e
+	ld			d,a						;de = w[(j + 9) & $0F]
+
+	ld			a,[de]
+	add			a,[hl]
+	ld			[hl+],a
+	inc			e						;=inc de
+	ld			a,[de]
+	adc			a,[hl]
+	ld			[hl+],a
+	inc			e						;=inc de
+	ld			a,[de]
+	adc			a,[hl]
+	ld			[hl+],a
+	inc			e						;=inc de
+	ld			a,[de]
+	adc			a,[hl]
+	ld			[hl],a					;w[j] += w[(j + 9) & $0F]
+	pop			hl						;hl = w[j]
+
+	pop			de
+	pop			bc						;bcde = s1
+
+	push		hl
+	ld			a,[hl]
+	add			a,e
+	ld			[hl+],a
+	ld			a,[hl]
+	adc			a,d
+	ld			[hl+],a
+	ld			a,[hl]
+	adc			a,c
+	ld			[hl+],a
+	ld			a,[hl]
+	adc			a,b
+	ld			[hl],a					;w[j] += s1
+	pop			hl						;hl = w[j]
+
+	pop			de
+	pop			bc						;bcde = s0
+
+	ld			a,[hl]
+	add			a,e
+	ld			[hl+],a
+	ld			a,[hl]
+	adc			a,d
+	ld			[hl+],a
+	ld			a,[hl]
+	adc			a,c
+	ld			[hl+],a
+	ld			a,[hl]
+	adc			a,b
+	ld			[hl],a					;w[j] += s0
+.endif:
+
+;s1
+	ld			hl,sha2_ah + 4 * 4		;optimize rrot(sha2_ah[4], 6)
+	ld			a,[hl+]
+	ld			b,a
+	ld			a,[hl+]
+	ld			e,a
+	ld			a,[hl+]
+	ld			d,a
+	ld			c,[hl]					;rrot 8
+
+		rept 2
+	sla			e						;lrot 2
+	rl			d
+	rl			c
+	rl			b
+	jr			nc,:+
+	inc			e
+:
+		endr
+
+	push		bc
+	push		de						;push rrot,6 result
+
+	ld			hl,sha2_ah + 4 * 4		;optimize rrot(sha2_ah[4], 11)
+	ld			a,[hl+]
+	ld			b,a
+	ld			a,[hl+]
+	ld			e,a
+	ld			a,[hl+]
+	ld			d,a
+	ld			c,[hl]					;rrot 8
+
+		rept 3
+	srl			b						;rrot 3
+	rr			c
+	rr			d
+	rr			e
+	jr			nc,:+
+	set			7,b
+:
+		endr
+
+	pop			hl						;xor32
+	ld			a,h
+	xor			d
+	ld			d,a
+	ld			a,l
+	xor			e
+	ld			e,a
+	pop			hl
+	ld			a,h
+	xor			b
+	ld			b,a
+	ld			a,l
+	xor			c
+	ld			c,a
+
+	push		bc
+	push		de						;push xor32 result
+
+	ld			hl,sha2_ah + 4 * 4		;optimize rrot(sha2_ah[4], 25)
+	ld			a,[hl+]
+	ld			d,a
+	ld			a,[hl+]
+	ld			c,a
+	ld			a,[hl+]
+	ld			b,a
+	ld			e,[hl]					;rrot 24
+
+	srl			b						;rrot 1
+	rr			c
+	rr			d
+	rr			e
+	jr			nc,:+
+	set			7,b
+:
+
+	pop			hl						;xor32
+	ld			a,h
+	xor			d
+	ld			d,a
+	ld			a,l
+	xor			e
+	ld			e,a
+	pop			hl
+	ld			a,h
+	xor			b
+	ld			b,a
+	ld			a,l
+	xor			c
+	ld			c,a
+
+	push		bc						;s1 higher 16bit
+	push		de						;s1 lower 16bit 順番を逆にする
+
+;ch
+	ld			hl,sha2_ah + 4 * 4		;hl[4]
+	ld			de,sha2_ah + 5 * 4		;hl[5]
+
+	ld			a,[de]
+	and			[hl]
+	ld			c,a
+	inc			l						;=inc hl
+	inc			e						;=inc de
+
+	ld			a,[de]
+	and			[hl]
+	ld			b,a
+	push		bc						;push lower 16bit
+	inc			l						;=inc hl
+	inc			e						;=inc de
+
+	ld			a,[de]
+	and			[hl]
+	ld			c,a
+	inc			l						;=inc hl
+	inc			e						;=inc de
+
+	ld			a,[de]
+	and			[hl]
+	ld			b,a
+	push		bc						;push higher 16bit
+
+	ld			de,sha2_ah + 4 * 4		;hl[4]
+	ld			hl,sha2_ah + 6 * 4		;hl[6]
+
+	ld			a,[de]
+	cpl
+	and			[hl]
+	ld			c,a
+	inc			l						;=inc hl
+	inc			e						;=inc de
+
+	ld			a,[de]
+	cpl
+	and			[hl]
+	ld			b,a
+	push		bc						;push lower 16bit
+	inc			l						;=inc hl
+	inc			e						;=inc de
+
+	ld			a,[de]
+	cpl
+	and			[hl]
+	ld			c,a
+	inc			l						;=inc hl
+	inc			e						;=inc de
+
+	ld			a,[de]
+	cpl
+	and			[hl]
+	ld			b,a
+;	push		bc
+
+;	pop			bc
+	pop			de						;pop lower 16bit
+
+	pop			hl						;pop higher 16bit
+	ld			a,l
+	xor			c
+	ld			c,a
+	ld			a,h
+	xor			b
+	ld			b,a
+	pop			hl						;pop lower 16bit
+	ld			a,l
+	xor			e
+	ld			e,a
+	ld			a,h
+	xor			d
+	ld			d,a
+
+	push		bc						;ch higher 16bit
+	push		de						;ch lower 16bit 順番を逆にする
+
+;temp1
+	ld			hl,sha2_j
+	ld			a,[sha2_i]
+	swap		a
+	or			[hl]
+	ld			l,a
+	ld			h,0
+	add			hl,hl
+	add			hl,hl					;*4byte
+	ld			bc,sha2_const_k
+	add			hl,bc					;k[i << 4 | j]
+
+	ld			a,[hl+]
+	ld			e,a
+	ld			a,[hl+]
+	ld			d,a
+	ld			a,[hl+]
+	ld			c,a
+	ld			b,[hl]
+
+	ld			a,[sha2_j]
+	add			a,a
+	add			a,a						;*4byte
+	add			a,LOW(sha2_w)
+	ld			l,a
+	adc			a,HIGH(sha2_w)
+	sub			l
+	ld			h,a						;w[j]
+
+	ld			a,[hl+]
+	add			a,e
+	ld			e,a
+	ld			a,[hl+]
+	adc			a,d
+	ld			d,a
+	ld			a,[hl+]
+	adc			a,c
+	ld			c,a
+	ld			a,[hl]
+	adc			a,b
+	ld			b,a
+
+	ld			hl,sha2_ah + 7 * 4		;ah[7]
+	ld			a,[hl+]
+	add			a,e
+	ld			e,a
+	ld			a,[hl+]
+	adc			a,d
+	ld			d,a
+	ld			a,[hl+]
+	adc			a,c
+	ld			c,a
+	ld			a,[hl]
+	adc			a,b
+	ld			b,a
+
+	pop			hl						;s1 lower 16bit
+	ld			a,l
+	add			a,e
+	ld			e,a
+	ld			a,h
+	adc			a,d
+	ld			d,a
+	pop			hl						;s1 higher 16bit
+	ld			a,l
+	adc			a,c
+	ld			c,a
+	ld			a,h
+	adc			a,b
+	ld			b,a
+
+	pop			hl						;ch lower 16bit
+	ld			a,l
+	add			a,e
+	ld			[sha2_temp1 + 0],a
+	ld			a,h
+	adc			a,d
+	ld			[sha2_temp1 + 1],a
+	pop			hl						;ch higher 16bit
+	ld			a,l
+	adc			a,c
+	ld			[sha2_temp1 + 2],a
+	ld			a,h
+	adc			a,b
+	ld			[sha2_temp1 + 3],a
+
+;s0
+	ld			hl,sha2_ah + 0 * 4
+	ld			b,2
+	call		sha2_rrot
+
+	push		bc
+	push		de						;push rrot,2 result
+
+	ld			hl,sha2_ah + 0 * 4		;optimize rrot(sha2_ah[0], 13)
+	ld			a,[hl+]
+	ld			c,a
+	ld			a,[hl+]
+	ld			b,a
+	ld			a,[hl+]
+	ld			e,a
+	ld			d,[hl]					;rrot 16
+
+		rept 3
+	sla			e						;lrot 3
+	rl			d
+	rl			c
+	rl			b
+	jr			nc,:+
+	inc			e
+:
+		endr
+
+	pop			hl						;xor32
+	ld			a,l
+	xor			e
+	ld			e,a
+	ld			a,h
+	xor			d
+	ld			d,a
+	pop			hl
+	ld			a,l
+	xor			c
+	ld			c,a
+	ld			a,h
+	xor			b
+	ld			b,a
+
+	push		bc
+	push		de						;push xor32 result
+
+	ld			hl,sha2_ah + 0 * 4		;optimize rrot(sha2_ah[0], 22)
+	ld			a,[hl+]
+	ld			d,a
+	ld			a,[hl+]
+	ld			c,a
+	ld			a,[hl+]
+	ld			b,a
+	ld			e,[hl]					;rrot 24
+
+		rept 2
+	sla			e						;lrot 2
+	rl			d
+	rl			c
+	rl			b
+	jr			nc,:+
+	inc			e
+:
+		endr
+
+	pop			hl						;xor32
+	ld			a,h
+	xor			d
+	ld			d,a
+	ld			a,l
+	xor			e
+	ld			e,a
+	pop			hl
+	ld			a,h
+	xor			b
+	ld			b,a
+	ld			a,l
+	xor			c
+	ld			c,a
+
+	push		bc						;s0 higher 16bit
+	push		de						;s0 lower 16bit 順番を逆にする
+
+;maj
+	ld			hl,sha2_ah + 0 * 4
+	ld			a,[hl+]
+	ld			e,a
+	ld			a,[hl+]
+	ld			d,a
+	ld			a,[hl+]
+	ld			c,a
+	ld			a,[hl+]
+	ld			b,a
+
+	push		bc
+	push		de						;push ah[0]
+
+	ld			a,[hl+]					;hl = sha2_ah[1]
+	and			e
+	ld			e,a
+	ld			a,[hl+]
+	and			d
+	ld			d,a
+	ld			a,[hl+]
+	and			c
+	ld			c,a
+	ld			a,[hl+]
+	and			b
+;	ld			b,a						;bcde = ah[0] & ah[1]
+
+	ld			hl,sha2_maj + 3
+	ld			[hl-],a
+	ld			a,c
+	ld			[hl-],a
+	ld			a,d
+	ld			[hl-],a
+	ld			[hl],e					;store ah[0] & ah[1]
+
+	pop			de
+	pop			bc						;pop ah[0]
+
+	ld			hl,sha2_ah + 2 * 4
+	ld			a,[hl+]					;hl = sha2_ah[2]
+	and			e
+	ld			e,a
+	ld			a,[hl+]
+	and			d
+	ld			d,a
+	ld			a,[hl+]
+	and			c
+	ld			c,a
+	ld			a,[hl]
+	and			b
+	ld			b,a						;bcde = ah[0] & ah[2]
+
+	ld			hl,sha2_maj
+	call		sha2_xor32
+
+	push		bc						;push (ah[0] & ah[1]) ^ (ah[0] & ah[2])
+	push		de
+
+	ld			hl,sha2_ah + 2 * 4 + 3
+	ld			a,[hl-]					;hl = sha2_ah[2]+3
+	ld			b,a
+	ld			a,[hl-]
+	ld			c,a
+	ld			a,[hl-]
+	ld			d,a
+	ld			a,[hl-]
+	ld			e,a
+
+	ld			a,[hl-]					;hl = sha2_ah[1]+3
+	and			b
+	ld			b,a
+	ld			a,[hl-]
+	and			c
+	ld			c,a
+	ld			a,[hl-]
+	and			d
+	ld			d,a
+	ld			a,[hl]
+	and			e
+;	ld			e,a						;bcde = ah[1] & ah[2]
+
+	pop			hl						;xor32
+	xor			l
+	ld			e,a
+	ld			a,h
+	xor			d
+	ld			d,a
+	pop			hl
+	ld			a,l
+	xor			c
+	ld			c,a
+	ld			a,h
+	xor			b
+	ld			b,a						;bcde = maj
+
+;temp2
+	pop			hl						;s0 lower 16bit
+	add			hl,de					;de = maj[1][0]
+	ld			e,l
+	ld			d,h
+	pop			hl						;s0 higher 16bit
+;	adc			hl,bc					;bc = maj[3][2]
+	ld			a,l
+	adc			a,c
+	ld			c,a
+	ld			a,h
+	adc			a,b
+	ld			b,a						;adc hl,bc は無い…
+
+;ah[7]-ah[0]
+	push		bc
+	push		de						;push temp2
+
+	ld			hl,sha2_ah + 7 * 4 + 3
+	ld			de,sha2_ah + 6 * 4 + 3
+	ld			b,7
+.copy_ah:
+	ld			a,[de]
+	ld			[hl-],a
+	dec 		e						;=dec de
+	ld			a,[de]
+	ld			[hl-],a
+	dec 		e						;=dec de
+	ld			a,[de]
+	ld			[hl-],a
+	dec 		e						;=dec de
+	ld			a,[de]
+	ld			[hl-],a
+	dec			de
+	dec			b
+	jr			nz,.copy_ah				;[7]-[1]
+
+	pop			de
+	pop			bc						;pop temp2
+	ld			hl,sha2_temp1
+	ld			a,[hl+]
+	add			a,e
+	ld			[sha2_ah + 0 * 4 + 0],a
+	ld			a,[hl+]
+	adc			a,d
+	ld			[sha2_ah + 0 * 4 + 1],a
+	ld			a,[hl+]
+	adc			a,c
+	ld			[sha2_ah + 0 * 4 + 2],a
+	ld			a,[hl+]
+	adc			a,b
+	ld			[sha2_ah + 0 * 4 + 3],a	;ah[0] = temp1 + temp2
+
+	ld			hl,sha2_ah + 4 * 4
+	ld			de,sha2_temp1
+	ld			a,[de]
+	add			a,[hl]
+	ld			[hl+],a
+	inc			e						;=inc de
+	ld			a,[de]
+	adc			a,[hl]
+	ld			[hl+],a
+	inc			e						;=inc de
+	ld			a,[de]
+	adc			a,[hl]
+	ld			[hl+],a
+	inc			e						;=inc de
+	ld			a,[de]
+	adc			a,[hl]
+	ld			[hl],a					;ah[4] = ah[3] + temp1
+
+	ld			hl,sha2_j
+	inc			[hl]
+	bit			4,[hl]
+	jp			z,.loop_j				;0<=j<=15
+
+;	ld			hl,sha2_i
+	dec			l						;=dec hl
+	inc			[hl]
+	bit			2,[hl]
+	jp			z,.loop_i				;0<=i<=3
+
+	ld			hl,sha2_h
+	ld			de,sha2_ah
+	ld			b,8
+.add_loop:
+	ld			a,[de]
+	add			a,[hl]
+	ld			[hl+],a
+	inc			e						;=inc de
+	ld			a,[de]
+	adc			a,[hl]
+	ld			[hl+],a
+	inc			e						;=inc de
+	ld			a,[de]
+	adc			a,[hl]
+	ld			[hl+],a
+	inc			e						;=inc de
+	ld			a,[de]
+	adc			a,[hl]
+	ld			[hl+],a
+	inc			de						;h[i] += ah[i]
+	dec			b
+	jr			nz,.add_loop
+
+	jp			.while
+.wend:
+
+	di
+	ld			hl,sha2_hash
+	ld			[sha2_stack],sp
+	ld			sp,sha2_h
+	ld			a,8
+.produce_hash:							;to big endian
+	pop			de
+	pop			bc
+	ld			[hl],b
+	inc			l
+	ld			[hl],c
+	inc			l
+	ld			[hl],d
+	inc			l
+	ld			[hl],e
+	inc			hl
+	dec			a
+	jr			nz,.produce_hash
+
+	ld			hl,sha2_stack
+	ld			a,[hl+]
+	ld			h,[hl]
+	ld			l,a
+	ld			sp,hl
+	ei
+	ret
+
+;--------------------------------------------------------------------------------------------------
+;sha2_rrottmp[0][1][2][3] = hl[0][1][2][3] >> b
+;circlular rotatation
+
+;左シフトした方が速い場合がありそう。
+sha2_rrot:
+	ld			a,[hl+]
+	ld			e,a
+	ld			a,[hl+]
+	ld			d,a
+	ld			a,[hl+]
+	ld			c,a
+
+	ld			a,b
+	ld			b,[hl]
+.loop:
+	srl			b
+	rr			c
+	rr			d
+	rr			e
+	jr			nc,.skip
+	set			7,b
+.skip:
+	dec			a
+	jr			nz,.loop				;GB は jr で ok
+	ret
+
+;--------------------------------------------------------------------------------------------------
+sha2_rshift:
+	ld			a,[hl+]
+	ld			e,a
+	ld			a,[hl+]
+	ld			d,a
+	ld			a,[hl+]
+	ld			c,a
+	ld			a,b
+	ld			b,[hl]
+.loop:
+	srl			b
+	rr			c
+	rr			d
+	rr			e
+	dec			a
+	jr			nz,.loop
+	ret
+
+;--------------------------------------------------------------------------------------------------
+;bcde ^= hl[3][2][1][0]
+sha2_xor32:
+	ld			a,[hl+]
+	xor			e
+	ld			e,a
+	ld			a,[hl+]
+	xor			d
+	ld			d,a
+	ld			a,[hl+]
+	xor			c
+	ld			c,a
+	ld			a,[hl]
+	xor			b
+	ld			b,a
+	ret
+
+;--------------------------------------------------------------------------------------------------
+SECTION "SHA2 WORK RAM",WRAM0,ALIGN[2]			;align to 4 bytes
+sha2_h:		ds	8 * 4
+sha2_ah:	ds	8 * 4
+
+;sha2_s1:	ds	1 * 4
+;sha2_ch:	ds	1 * 4
+sha2_temp1:	ds	1 * 4
+;sha2_s0:	ds	1 * 4
+sha2_maj:	ds	1 * 4
+;sha2_temp2:	ds	1 * 4
+
+sha2_rrottmp:	ds	1 * 4				;work
+
+sha2_w:		ds	16 * 4					;work
+
+sha2_totallen:	dw						;input file size (bytes)
+sha2_len:		dw						;remain length
+sha2_chunk:	ds	64						;buffer blocksize=64bytes
+
+sha2_hash:	ds	32						;result
+
+sha2_p:		dw							;current pointer
+
+sha2_i:		db
+sha2_j:		db
+
+sha2_state:	db
+sha2_stack:	dw
