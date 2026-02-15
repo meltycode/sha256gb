@@ -7,9 +7,9 @@
 ; output: sha2_hash(32bytes)
 ;
 ; need more optimization.
-; input file size ‚ÍŒ»À“I‚Él‚¦‚Ä <=16bit ‚Æ‚·‚é‚Ì‚ª“K“–‚¾‚Æv‚¤B
-; MBC5 ‚ÌÅ‘å 8,388,608byte ‚ª 24bit ‚Å TPP1 ‚ª 1,073,741,824 ‚È‚Ì‚Å 32bit ‚ ‚ê‚Î–Ô—…‚Ío—ˆ‚é‚ª ROM ‚ÌƒnƒbƒVƒ…‹‚ß‚Ä‚àŠğ‚µ‚­‚È‚¢B
-; TPP1 ‚Ì RAM ‚Í 2,097,152 ‚È‚Ì‚Å 24bit ‚Åû‚Ü‚éB
+; input file size ã¯ç¾å®Ÿçš„ã«è€ƒãˆã¦ <=16bit ã¨ã™ã‚‹ã®ãŒé©å½“ã ã¨æ€ã†ã€‚
+; MBC5 ã®æœ€å¤§ 8,388,608byte ãŒ 24bit ã§ TPP1 ãŒ 1,073,741,824 ãªã®ã§ 32bit ã‚ã‚Œã°ç¶²ç¾…ã¯å‡ºæ¥ã‚‹ãŒ ROM ã®ãƒãƒƒã‚·ãƒ¥æ±‚ã‚ã¦ã‚‚å¬‰ã—ããªã„ã€‚
+; TPP1 ã® RAM ã¯ 2,097,152 ãªã®ã§ 24bit ã§åã¾ã‚‹ã€‚
 
 sha2_const_k:
 	dl	$428A2F98, $71374491, $B5C0FBCF, $E9B5DBA5, $3956C25B, $59F111F1, $923F82A4, $AB1C5ED5
@@ -29,7 +29,7 @@ sha2_h_init:
 sha2_calc_chunk:
 	ld			a,[sha2_state]
 	rrca
-	ret			c						;bit0=total_len_delivered. ƒTƒCƒY‚ğŠÜ‚ñ‚¾ƒuƒƒbƒN‚ğˆ—Ï‚İ
+	ret			c						;bit0=total_len_delivered. ã‚µã‚¤ã‚ºã‚’å«ã‚“ã ãƒ–ãƒ­ãƒƒã‚¯ã‚’å‡¦ç†æ¸ˆã¿
 
 	ld			hl,sha2_len
 	ld			a,[hl]
@@ -57,7 +57,7 @@ sha2_calc_chunk:
 	ld			e,a						;de=input address
 
 	inc			b
-	ld			hl,sha2_chunk			;64byte ‚Ìƒoƒbƒtƒ@‚ÉƒRƒs[‚·‚é
+	ld			hl,sha2_chunk			;64byte ã®ãƒãƒƒãƒ•ã‚¡ã«ã‚³ãƒ”ãƒ¼ã™ã‚‹
 .loop:
 	dec			b
 	jr			z,.skip
@@ -73,22 +73,22 @@ sha2_calc_chunk:
 	set			7,a
 	ld			[sha2_state],a
 
-	ld			a,$80					;‹æØ‚èƒTƒCƒ“ $80
-	ld			[hl+],a					;b<64 ‚Ì‚Æ‚«‚É‚±‚±‚É—ˆ‚é‚Ì‚ÅA•K‚¸ 1byte ‚ÌƒTƒCƒ“‚ğ‘‚­—]’n‚Í‚ ‚é
+	ld			a,$80					;åŒºåˆ‡ã‚Šã‚µã‚¤ãƒ³ $80
+	ld			[hl+],a					;b<64 ã®ã¨ãã«ã“ã“ã«æ¥ã‚‹ã®ã§ã€å¿…ãš 1byte ã®ã‚µã‚¤ãƒ³ã‚’æ›¸ãä½™åœ°ã¯ã‚ã‚‹
 	dec			c						;space_in_chunk--
 
 .skip2:
 	ld			a,c
 	cp			8
-	jr			c,.pad					;space_in_chunk < 8 ‚Ì‚Æ‚«‚ÍƒTƒCƒY–„‚ß‚İ‚ª‚Å‚«‚È‚¢‚Ì‚Å 0 ‚Å–„‚ß‚Ä¡‰ñ‚ÍI—¹
+	jr			c,.pad					;space_in_chunk < 8 ã®ã¨ãã¯ã‚µã‚¤ã‚ºåŸ‹ã‚è¾¼ã¿ãŒã§ããªã„ã®ã§ 0 ã§åŸ‹ã‚ã¦ä»Šå›ã¯çµ‚äº†
 	ld			a,c
 	sub			8
 	ld			c,a
-	call		.pad					;space_in_chunk-8 ‚ğ $00 ‚Å–„‚ß‚ÄA
+	call		.pad					;space_in_chunk-8 ã‚’ $00 ã§åŸ‹ã‚ã¦ã€
 
 	ld			a,[sha2_totallen+0]
 	ld			e,a
-	ld			a,[sha2_totallen+1]		;8”{‚µ‚Ä bytes -> bits ‚É‚·‚é
+	ld			a,[sha2_totallen+1]		;8å€ã—ã¦ bytes -> bits ã«ã™ã‚‹
 	ld			d,a
 	ld			c,0
 	sla			e
@@ -102,7 +102,7 @@ sha2_calc_chunk:
 	rl			c						;cde *= 8
 
 	ld			hl,sha2_chunk+56
-	xor			a						;big endian ‚Å 8byte ‚ÌƒTƒCƒYî•ñ(bits)‚ğ–„‚ß‚Ş
+	xor			a						;big endian ã§ 8byte ã®ã‚µã‚¤ã‚ºæƒ…å ±(bits)ã‚’åŸ‹ã‚è¾¼ã‚€
 	ld			[hl+],a
 	ld			[hl+],a
 	ld			[hl+],a
@@ -115,20 +115,20 @@ sha2_calc_chunk:
 	ld			[hl],e
 
 	ld			hl,sha2_state
-	set			0,[hl]					;bit0=total_len_delivered. ƒTƒCƒY‚ğŠÜ‚ñ‚¾ƒuƒƒbƒN‚ğˆ—Ï‚İ
+	set			0,[hl]					;bit0=total_len_delivered. ã‚µã‚¤ã‚ºã‚’å«ã‚“ã ãƒ–ãƒ­ãƒƒã‚¯ã‚’å‡¦ç†æ¸ˆã¿
 	or			a
 	ret									;cf=0
 
-.pad:									;‹ó‚«ƒXƒy[ƒX‚ª 8byte ‚æ‚è­‚È‚¢‚Ì‚Å¡‰ñ‚ÍƒTƒCƒY–„‚ß‚İ‚ÍŒ©‘—‚Á‚Ä $00 ‚Å–„‚ß‚éB
+.pad:									;ç©ºãã‚¹ãƒšãƒ¼ã‚¹ãŒ 8byte ã‚ˆã‚Šå°‘ãªã„ã®ã§ä»Šå›ã¯ã‚µã‚¤ã‚ºåŸ‹ã‚è¾¼ã¿ã¯è¦‹é€ã£ã¦ $00 ã§åŸ‹ã‚ã‚‹ã€‚
 	ld			a,LOW(sha2_chunk)
 	ld			[sha2_p + 0],a
-	ld			a,HIGH(sha2_chunk)		;RAM ƒoƒbƒtƒ@‚Ì•û‚ğˆ—‚·‚é
+	ld			a,HIGH(sha2_chunk)		;RAM ãƒãƒƒãƒ•ã‚¡ã®æ–¹ã‚’å‡¦ç†ã™ã‚‹
 	ld			[sha2_p + 1],a
 
 	xor			a
 	inc			c
 	dec			c
-	ret			z						;c=0 ‚Ì‚Í pad ‚·‚é—]’n‚È‚µ
+	ret			z						;c=0 ã®æ™‚ã¯ pad ã™ã‚‹ä½™åœ°ãªã—
 .padloop:
 	ld			[hl+],a
 	dec			c
@@ -157,7 +157,7 @@ sha2_256:
 
 	ld			hl,sha2_h_init
 	ld			de,sha2_h
-	ld			bc,32					;‰Šú’l‚ğƒRƒs[
+	ld			bc,32					;åˆæœŸå€¤ã‚’ã‚³ãƒ”ãƒ¼
 	call		LDIR
 
 .while:
@@ -173,7 +173,7 @@ sha2_256:
 	ld			[sha2_i],a				;0...3
 .loop_i:
 	xor			a
-	ld			[sha2_j],a				;0...15 ƒJƒEƒ“ƒgƒAƒbƒv‚µ‚½•û‚ª‘¬‚¢
+	ld			[sha2_j],a				;0...15 ã‚«ã‚¦ãƒ³ãƒˆã‚¢ãƒƒãƒ—ã—ãŸæ–¹ãŒé€Ÿã„
 .loop_j:
 	ld			a,[sha2_i]
 	or			a
@@ -184,14 +184,14 @@ sha2_256:
 	ld			h,[hl]
 	ld			l,a
 
-	ld			a,[hl+]					;ƒrƒbƒOƒGƒ“ƒfƒBƒAƒ“‚ÅE‚Á‚Ä
+	ld			a,[hl+]					;ãƒ“ãƒƒã‚°ã‚¨ãƒ³ãƒ‡ã‚£ã‚¢ãƒ³ã§æ‹¾ã£ã¦
 	ld			b,a
 	ld			a,[hl+]
 	ld			c,a
 	ld			a,[hl+]
 	ld			d,a
 	ld			a,[hl+]
-	ld			e,a						;ƒoƒ“ƒNŒ×‚¬‚ğl—¶‚·‚éê‡‚Í‚±‚Ì•Ó‚ÅB
+	ld			e,a						;ãƒãƒ³ã‚¯è·¨ãã‚’è€ƒæ…®ã™ã‚‹å ´åˆã¯ã“ã®è¾ºã§ã€‚
 
 	ld			a,l
 	ld			[sha2_p+0],a
@@ -207,7 +207,7 @@ sha2_256:
 	sub			l
 	ld			h,a						;hl = w[j]
 
-	ld			a,e						;ƒŠƒgƒ‹ƒGƒ“ƒfƒBƒAƒ“‚ÅŠi”[
+	ld			a,e						;ãƒªãƒˆãƒ«ã‚¨ãƒ³ãƒ‡ã‚£ã‚¢ãƒ³ã§æ ¼ç´
 	ld			[hl+],a
 	ld			a,d
 	ld			[hl+],a
@@ -344,7 +344,7 @@ sha2_256:
 	push		de						;push rrrot,17 result
 
 		rept 2
-	srl			b						;rrot,17 ‚ÌŒ‹‰Ê‚ğ‚³‚ç‚É rrot,2 ‚µ‚Ä rrot,19 ‚É‚·‚é
+	srl			b						;rrot,17 ã®çµæœã‚’ã•ã‚‰ã« rrot,2 ã—ã¦ rrot,19 ã«ã™ã‚‹
 	rr			c
 	rr			d
 	rr			e
@@ -572,7 +572,7 @@ sha2_256:
 	ld			c,a
 
 	push		bc						;s1 higher 16bit
-	push		de						;s1 lower 16bit ‡”Ô‚ğ‹t‚É‚·‚é
+	push		de						;s1 lower 16bit é †ç•ªã‚’é€†ã«ã™ã‚‹
 
 ;ch
 	ld			hl,sha2_ah + 4 * 4		;hl[4]
@@ -652,7 +652,7 @@ sha2_256:
 	ld			d,a
 
 	push		bc						;ch higher 16bit
-	push		de						;ch lower 16bit ‡”Ô‚ğ‹t‚É‚·‚é
+	push		de						;ch lower 16bit é †ç•ªã‚’é€†ã«ã™ã‚‹
 
 ;temp1
 	ld			hl,sha2_j
@@ -820,7 +820,7 @@ sha2_256:
 	ld			c,a
 
 	push		bc						;s0 higher 16bit
-	push		de						;s0 lower 16bit ‡”Ô‚ğ‹t‚É‚·‚é
+	push		de						;s0 lower 16bit é †ç•ªã‚’é€†ã«ã™ã‚‹
 
 ;maj
 	ld			hl,sha2_ah + 0 * 4
@@ -929,7 +929,7 @@ sha2_256:
 	ld			c,a
 	ld			a,h
 	adc			a,b
-	ld			b,a						;adc hl,bc ‚Í–³‚¢c
+	ld			b,a						;adc hl,bc ã¯ç„¡ã„â€¦
 
 ;ah[7]-ah[0]
 	push		bc
@@ -1056,7 +1056,7 @@ sha2_256:
 ;sha2_rrottmp[0][1][2][3] = hl[0][1][2][3] >> b
 ;circlular rotatation
 
-;¶ƒVƒtƒg‚µ‚½•û‚ª‘¬‚¢ê‡‚ª‚ ‚è‚»‚¤B
+;å·¦ã‚·ãƒ•ãƒˆã—ãŸæ–¹ãŒé€Ÿã„å ´åˆãŒã‚ã‚Šãã†ã€‚
 sha2_rrot:
 	ld			a,[hl+]
 	ld			e,a
@@ -1076,7 +1076,7 @@ sha2_rrot:
 	set			7,b
 .skip:
 	dec			a
-	jr			nz,.loop				;GB ‚Í jr ‚Å ok
+	jr			nz,.loop				;GB ã¯ jr ã§ ok
 	ret
 
 ;--------------------------------------------------------------------------------------------------

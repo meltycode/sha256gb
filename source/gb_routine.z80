@@ -32,7 +32,7 @@ Initialize:								;初期スタックポインタ = $FFFE
 	dec			e
 	jr			nz,.loop1
 
-	ld			a,CART_RAM_ENABLE
+	ld			a,RAMG_SRAM_ENABLE
 	ld			[rRAMG],a
 
 ;	ld			a,[$0149]				;カートリッジヘッダの RAM サイズ
@@ -157,16 +157,16 @@ PaletteSet:
 	jr			nz,.OBJ
 	ret
 
-SetPal:	MACRO							; R,G,B 表記
+macro	SetPal							; R,G,B 表記
 	dw			(\3 << 10) | (\2 << 5) | \1
-ENDM
+endm
 
-SetPal2: MACRO							; #1F0A08 っぽい表記ただし RGB の各値は 31>n>0
+macro	SetPal2							; #1F0A08 っぽい表記ただし RGB の各値は 31>n>0
 	dw			((\1 & $FF)<<10) | ((\1 & $00FF00)>>3) | ((\1 & $FF0000)>>16)
 	dw			((\2 & $FF)<<10) | ((\2 & $00FF00)>>3) | ((\2 & $FF0000)>>16)
 	dw			((\3 & $FF)<<10) | ((\3 & $00FF00)>>3) | ((\3 & $FF0000)>>16)
 	dw			((\4 & $FF)<<10) | ((\4 & $00FF00)>>3) | ((\4 & $FF0000)>>16)
-ENDM
+endm
 
 DefaultPal:
 	SetPal2		$1F1F1F, $101010, $080808, $000000
@@ -263,7 +263,7 @@ ScreenOff:
 ; 画面設定と表示＆割り込み設定と開始
 ;
 ;********************************************************
-ScreenOnVB::
+ScreenOnVB:
 	ld      	a, %11000011
 					; LCD Controller = On 				1=ON / 0=OFF
 					; Window BaseMap = 0x9C00			1=9C00-9FFF / 0=9800-9BFF
@@ -288,13 +288,13 @@ ScreenOnVB::
 												;Bit 1   - LCDC状態変化
 												;Bit 0   - V-ブランク
 
-;	ld			a,IEF_VBLANK | IEF_LCDC | IEF_TIMER
+;	ld			a,IF_VBLANK | IF_LCDC | IF_TIMER
 	xor			a
 	ldh			[rIE], a
 
 	ret
 ;**********************************************************************
-DoubleSpeed::
+DoubleSpeed:
 	ldh			a,[rIE]
 	push		af
 	xor			a
@@ -333,29 +333,29 @@ Sound_Init:								;レジスタ初期化。
 ;rP1 = $FF00
 ReadJoystick:
 	ld			c,rP1 & $FF			;c = 0
-	ld			a,P1F_5				; P15 OutPort 00100000 d-pad
-	ld			[c],a				;turn on P15
+	ld			a,JOYP_GET_CTRL_PAD	; P15 OutPort 00100000 d-pad
+	ldh			[c],a				;turn on P15
 
-	ld			a,[c]				;delay
-	ld			a,[c]
-	ld			a,[c]
-	ld			a,[c]
+	ldh			a,[c]				;delay
+	ldh			a,[c]
+	ldh			a,[c]
+	ldh			a,[c]
 
 	and			$0F
 	swap		a
 	ld			b,a					;save to reg.b
 
-	ld			a,P1F_4
-	ld			[c],a				;turn on P14 button
-	ld			a,[c]				;delay
-	ld			a,[c]
-	ld			a,[c]
-	ld			a,[c]
-	ld			a,[c]
-	ld			a,[c]
+	ld			a,JOYP_GET_BUTTONS
+	ldh			[c],a				;turn on P14 button
+	ldh			a,[c]				;delay
+	ldh			a,[c]
+	ldh			a,[c]
+	ldh			a,[c]
+	ldh			a,[c]
+	ldh			a,[c]
 
-	ld			a,[c]
-	ld			a,[c]
+	ldh			a,[c]
+	ldh			a,[c]
 
 	and		    $0F
 	or			b
@@ -369,8 +369,8 @@ ReadJoystick:
 	ld			a,b
 	ldh			[_Pad],a			; old push 押している間=1
 
-	ld			a,P1F_5 | P1F_4		;reset
-	ld     		[c],a
+	ld			a,JOYP_GET_CTRL_PAD | JOYP_GET_BUTTONS		;reset
+	ldh    		[c],a
 	ret
 ReadJoystick_End:
 
